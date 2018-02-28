@@ -1,0 +1,667 @@
+---
+title: Regression project
+author: Muhammad Farooq Chaudri, Erle Mulligan and Ronald Holt
+date: 8 December 2017
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(psych)
+library(reshape2)
+library(ggplot2)
+library(purrr)
+library(tidyr)
+library(corrplot)
+library(car)
+library(GGally)
+library(leaps)
+```
+
+## Final Project
+As an owner of a data science consulting firm and of the building that our company currently occupies, We have to decide if it is better for us to sell the building or rent it out. As, there are lot of factors effecting the RentRate, we have to carefully develop a model that can cater all the features efficiently.
+
+We have data with 100 observation that we will use in training the model and then predicitng the RentRate of our space to decide wheater it is better to sell the space or rent it out.
+
+The outcome variable, the variable we are trying to predict is rental rate (RentRate). Our potential predictor variables are all of the variables in our sample data set (Age, OperExp, VacRate, SqFt, Taxes, W2MiDT).
+
+### 1. Analysis
+To understand the data we need to make some basic analysis. The following are some data visualizations that show distribution and skewness of the features.
+
+&nbsp;
+
+#### Analysis: Loading Dataset
+``` {r Part 1}
+data <- na.omit(read.csv("Datasets/comm_prop.csv"))
+knitr::kable(head(data), format = "markdown")
+
+nullValues <- sum(is.na(data))
+nullValues
+```
+There are `r nullValues` null values in the dataset
+&nbsp;
+The shape of data set is `r dim(data)`
+
+&nbsp;
+
+#### Analysis: Type of features in the dataset
+
+``` {r Analysis 1.1}
+types <- sapply(data, typeof)
+types
+```
+
+&nbsp;
+
+#### Analysis: Statistical measures
+
+``` {r Analysis 1.2}
+describe(data)
+```
+From above table, we can see that only two features i.e. RentRate and OperExp are negative skewed (Left - Skewed) and all the other features are positive skewed (Right skewed).
+
+##### Analysis: Skewness Definition 
+
+* If skewness is less than -1 or greater than 1, the distribution is highly skewed.
+* If skewness is between -1 and -0.5 or between 0.5 and 1, the distribution is moderately skewed.
+* If skewness is between -0.5 and 0.5, the distribution is approximately symmetric.
+  
+##### Analysis: Kurtosis Definition
+
+* K = 3 indicates a normal “bellshaped” distribution (mesokurtic).
+* K < 3 indicates a platykurtic distribution (flatter than a normal distribution with shorter tails).
+* K > 3 indicates a leptokurtic distribution (more peaked than a normal distribution with longer tails).
+
+&nbsp;
+
+The features with highest negative skewness is OperExp (-0.63) and feature with highest positive skewness is VacRate (2.94).
+Lets take a look at the distribution of these two features.
+&nbsp;
+
+#### Analysis: Distribution plot for all the feature
+``` {r Distribution plot}
+data %>%
+  keep(is.numeric) %>%                     
+  gather() %>%                             
+  ggplot(aes(value)) +                     
+    facet_wrap(~ key, scales = "free") +   
+    geom_density(fill="lime green")                        
+```
+&nbsp;
+
+Lets explore **OperExp** and **VacRate** distributions
+
+#### Analysis: Distribution plots for **OperExp**
+
+``` {r Distribution OperExp}
+
+hist(data$OperExp, col = "lime green", prob = TRUE, xlab = "OperExp",main = "OperExp Density Plot")
+
+lines(density(data$OperExp), # density plot
+ lwd = 2, # thickness of line
+ col = "royal blue")
+
+abline(v = mean(data$OperExp),
+ col = "sea green",
+ lwd = 2)
+
+abline(v = median(data$OperExp),
+ col = "red",
+ lwd = 2)
+
+legend(x = "topright", # location of legend within plot area
+ c("Density plot", "Mean", "Median"),
+ col = c("royal blue", "sea green", "red"),
+ lwd = c(2, 2, 2))
+
+```
+
+&nbsp;
+
+The above distribution graph shows that the OperExp is **left skewed** (Negative Skewed).
+&nbsp;
+
+
+#### Analysis: Distribution plots for **VacRate**
+``` {r Distribution VacRate}
+
+hist(data$VacRate, col = "lime green", 
+     prob = TRUE, xlab = "VacRate", 
+     main = "VacRate Density Plot")
+
+lines(density(data$VacRate), # density plot
+ lwd = 2, # thickness of line
+ col = "royal blue")
+
+abline(v = mean(data$VacRate),
+ col = "sea green",
+ lwd = 2)
+
+abline(v = median(data$VacRate),
+ col = "red",
+ lwd = 2)
+
+legend(x = "topright", # location of legend within plot area
+ c("Density plot", "Mean", "Median"),
+ col = c("royal blue", "sea green", "red"),
+ lwd = c(2, 2, 2))
+
+```
+&nbsp;
+
+The above distribution graph shows that the VacRate is **right skewed** (Positive Skewed). In addition, vacancy rate shows that majority of the building have lower vacancy rate which mean it is definitely a rental market. More building are rented out.
+&nbsp;
+
+#### Analysis: Distribution plots for **Age**
+
+``` {r Distribution Age}
+
+hist(data$Age, col = "lime green", 
+     prob = TRUE, xlab = "Age", 
+     main = "Age Density Plot")
+
+lines(density(data$Age), # density plot
+ lwd = 2, # thickness of line
+ col = "royal blue")
+
+abline(v = mean(data$Age),
+ col = "sea green",
+ lwd = 2)
+
+abline(v = median(data$Age),
+ col = "red",
+ lwd = 2)
+
+legend(x = "topright", # location of legend within plot area
+ c("Density plot", "Mean", "Median"),
+ col = c("royal blue", "sea green", "red"),
+ lwd = c(2, 2, 2))
+
+```
+
+The age variable shows that the sample data contains more inequality between years. It contains data of building that are new as 0 to 4 years and old betwen 13 to 18 but less in between. In addiition, the sample size doesn’t have equal numbers of building that are rented outside of 2 miles radius vs close to downtown.
+
+&nbsp;
+
+#### 2. Correlations Examination
+
+The correlation matrix of all the features looks like:
+
+``` {r 2.1 Correlation Matrix }
+M <- cor(data)
+corrplot(M, insig = "p-value", 
+         sig.level = -1, 
+         col = terrain.colors(100))
+```
+&nbsp;
+
+As we can see from abvce correlation plot, there exists a multicollinearity as the feature **Taxes** and **SqFt** appears to be related strongly (with corr value ~ 1). This appears to be a Structural Multicollinearity as Taxes is a function of SqFt, as square feet area increases the taxes also increases.
+
+&nbsp;
+
+Let's plot the correlation matirx with **p-values**:
+
+``` {r Correlation with P-value}
+res1 <- cor.mtest(data, conf.level = .95)
+corrplot(M, insig = "p-value", 
+         sig.level = -1, col = terrain.colors(100), 
+         p.mat = res1$p)
+```
+
+The plot above shows the correlation mtrix with p-values. Here we can see, the features with p-value greater than α (0.05) are not statistically significant and features with p-value less than and equal to α are significant. And now, we are sure there is a significant multicollinearity in our predictors i.e Taxes,SqFt,Age and W2MiDT.
+
+&nbsp;
+
+Lets explore some details in correlation 
+
+``` {r 2.1 Correlation Details}
+corrPlot <- function(data, mapping, ...){
+  p <- ggplot(data = data, mapping = mapping) + 
+    geom_point() + 
+    geom_smooth(method=loess, fill="red", color="red", ...) +
+    geom_smooth(method=lm, fill="blue", color="blue", ...)
+  p
+}
+
+gp = ggpairs(data,columns = 1:7, lower = list(continuous = corrPlot))
+gp
+```
+
+&nbsp;
+
+This graph shows that there is a strong correlation between **Taxes** and **SqFt**. This indicates that taxes are based on **SQFT** of the building. On the other hand, Vacancy rate and operating expense shows negative correlation, which proofs that operating expense is close to none if the building is available for rent. 
+
+There is a negative correlation between age and Rentrate of -0.25. The older the building, lower the rent you likely to collect; however, it needs to account other factors such as SQFT, and if the building is at least two miles away from downtown. In addition, downtown buildings are new and bigger in SQFT which collect higher rent. 
+
+There is medium correlation strength of 0.414 associated between RentRate and operating expense. This means operating expense can lead to higher RentRate.Furthermore, there is very small correlation between rental rate and occupancy rate.
+
+With this given sample data, we already know it’s a rental market and the profit will be depend on how much rental rate will be for the building. As it concludes, rental rate will be our outcome variable.
+
+&nbsp;
+
+#### 3. Outcome & Predictors
+
+Our outcome variable is **RentRate** and predictors are Age, OperExp, SqFt (Which is function of Taxes therefore we removed Taxes), W2MiDT and the interactionf of these predictors
+
+#### 4. Regression model (Identification and evaluation)
+
+``` {r W2MiDT as factor}
+data$W2MiDT <- as.factor(data$W2MiDT)
+```
+
+##### Fitting Liner Regression Model
+
+##### 4.1 Manual Iterations
+
+&nbsp;
+
+Manual Iteration is a process of building the best-fit model by manually observing the data set and eliminating the factors without a significant p-value one by one. Then observing the new model’s adjusted R-sqaure value.
+
+The process of elimination is done for every variable that individually has the highest p-value (i.e is least significant).
+For doing the this, we use the ‘lm’ function, derived from the ‘stats’ library; used to fit Linear Models to the datasets and execute the ‘summary’ function on the model. The model here, is fitted by using both the ‘first order variables (columns of the dataset) and ’interactions’ (combined predictor variables. Denoted with x:y).
+The OUTPUT of this method finally needs to have a HIGH Adjusted R value and SIGNIFICANT (i.e LOW) p-value.
+**We have decided to remove the Taxes variable because it’s strong correlation with SqFt**. We reasoned that **Taxes** is likely a function of **SqFt** so we will take the variable (**SqFt**) that we believe is used in calculating Taxes.
+
+&nbsp;
+
+``` {r 3.1.1 Manual Process for Identifying significant predictors}
+lm1 <- lm(RentRate~.*.,data=data)
+#summary(lm1)
+
+lm2 <- lm(RentRate ~ Age + OperExp + VacRate + SqFt + 
+            Taxes+W2MiDT + Age:OperExp + Age:VacRate + 
+            Age:SqFt + Age:Taxes+Age:W2MiDT + OperExp:VacRate + 
+            OperExp:SqFt  +OperExp:Taxes+OperExp:W2MiDT+ VacRate:SqFt + 
+            VacRate:Taxes+VacRate:W2MiDT +SqFt:Taxes+Taxes:W2MiDT, 
+          data=data)
+#summary(lm2)
+
+lm3 <- lm(RentRate ~ Age + OperExp + VacRate + 
+            SqFt + Taxes+W2MiDT + Age:OperExp + 
+            Age:VacRate + Age:SqFt + Age:Taxes+Age:W2MiDT +
+            OperExp:VacRate + OperExp:SqFt + 
+            OperExp:Taxes+OperExp:W2MiDT+ VacRate:SqFt + 
+            VacRate:Taxes +SqFt:Taxes+Taxes:W2MiDT, data=data)
+#summary(lm3)
+
+lm4 <- lm(RentRate ~ Age + OperExp + VacRate  + 
+            Taxes+W2MiDT + Age:OperExp + Age:VacRate + 
+            Age:SqFt + Age:Taxes+Age:W2MiDT + OperExp:VacRate +
+            OperExp:SqFt + OperExp:Taxes + OperExp:W2MiDT + 
+            VacRate:SqFt + VacRate:Taxes + 
+            SqFt:Taxes+Taxes:W2MiDT, data=data)
+#summary(lm4)
+
+lm5 <- lm(RentRate ~ Age + OperExp + VacRate + 
+            Taxes+W2MiDT + Age:OperExp + Age:VacRate + 
+            Age:SqFt + Age:Taxes+Age:W2MiDT + OperExp:VacRate + 
+            OperExp:SqFt + OperExp:Taxes+OperExp:W2MiDT + 
+            VacRate:SqFt + VacRate:Taxes + 
+            SqFt:Taxes+Taxes:W2MiDT, data=data)
+#summary(lm5)
+
+lm6 <- lm(RentRate ~ Age + OperExp + VacRate + Taxes+W2MiDT + 
+            Age:OperExp + Age:VacRate + Age:SqFt + 
+            Age:Taxes+Age:W2MiDT + OperExp:VacRate + 
+            OperExp:SqFt + OperExp:Taxes + OperExp:W2MiDT + 
+            VacRate:SqFt + VacRate:Taxes + 
+            Taxes:W2MiDT, data=data)
+#summary(lm6)
+
+lm7 <- lm(RentRate ~ Age + OperExp + VacRate  + Taxes + 
+            W2MiDT + Age:OperExp + Age:VacRate + Age:SqFt +
+            Age:Taxes+Age:W2MiDT + OperExp:VacRate + OperExp:SqFt +
+            OperExp:Taxes+OperExp:W2MiDT + VacRate:SqFt + Taxes:W2MiDT, 
+          data=data)
+#summary(lm7)
+
+lm8 <- lm(RentRate ~ Age + OperExp + VacRate  +W2MiDT + Age:OperExp +
+            Age:VacRate + Age:SqFt + Age:Taxes+Age:W2MiDT +
+            OperExp:VacRate + OperExp:SqFt + OperExp:Taxes + 
+            OperExp:W2MiDT + VacRate:SqFt + 
+            Taxes:W2MiDT, data=data)
+#summary(lm8)
+
+lm9 <-lm(RentRate ~ Age + OperExp + VacRate + W2MiDT + 
+           Age:OperExp + Age:VacRate + Age:SqFt + 
+           Age:Taxes+Age:W2MiDT + OperExp:VacRate +
+           OperExp:Taxes+OperExp:W2MiDT + VacRate:SqFt + 
+           Taxes:W2MiDT, data=data)
+#summary(lm9)
+
+lm10 <- lm(RentRate ~ Age + OperExp + VacRate + W2MiDT + 
+             Age:OperExp + Age:VacRate + Age:Taxes+Age:W2MiDT +
+             OperExp:VacRate + OperExp:Taxes + OperExp:W2MiDT + 
+             VacRate:SqFt + Taxes:W2MiDT, data=data)
+#summary(lm10)
+
+lm11 <- lm(RentRate ~ Age + OperExp + VacRate + W2MiDT + 
+             Age:OperExp + Age:VacRate  + Age:Taxes+Age:W2MiDT + 
+             OperExp:VacRate + OperExp:Taxes+OperExp:W2MiDT + 
+             Taxes:W2MiDT, data=data)
+#summary(lm11)
+
+lm12 <- lm(RentRate ~ Age + OperExp + VacRate  +W2MiDT + 
+             Age:OperExp + Age:VacRate  + Age:Taxes+Age:W2MiDT +
+             OperExp:VacRate + OperExp:W2MiDT + 
+             Taxes:W2MiDT, data=data)
+#summary(lm12)
+
+lm13 <- lm(RentRate ~ Age + OperExp + W2MiDT + Age:OperExp + 
+             Age:VacRate + Age:Taxes+Age:W2MiDT +
+             OperExp:VacRate + OperExp:W2MiDT + 
+             Taxes:W2MiDT, data=data)
+#summary(lm13)
+
+lm14 <- lm(RentRate ~ Age + OperExp + W2MiDT + Age:OperExp + 
+             Age:VacRate + Age:Taxes+Age:W2MiDT + OperExp:W2MiDT +
+             Taxes:W2MiDT, data=data)
+#summary(lm14)
+
+lm15 <- lm(RentRate ~ Age + OperExp + W2MiDT + Age:OperExp + 
+             Age:VacRate + Age:Taxes + OperExp:W2MiDT + 
+             Taxes:W2MiDT, data=data)
+#summary(lm15)
+
+fit1 <- lm(RentRate ~ Age + OperExp + W2MiDT + Age:OperExp + 
+             Age:VacRate + OperExp:W2MiDT + 
+             Taxes:W2MiDT, data=data)
+summary(fit1)
+```
+
+All of the features with insignificant P-Value are dropped. Lets apply other tests on our model (fit1).
+
+##### Interval plot for fit1 (Model From Iterative Process)
+``` {r 4.2 Residual Plots fit1}
+qqPlot(fit1$residuals, pch=16)
+```
+
+The Residual are normal and within the intervals.
+
+##### Residual Plot for fit1 (Model From Iterative Process)
+``` {r 4.1 Residual Plots fit1}
+lmDo <- fortify(fit1)
+ggplot(lmDo, aes(x=.fitted, y=.resid)) +
+  geom_point(col ="red") + # this function is used to draw the scatter plot 
+  geom_hline(yintercept=0, linetype=2) + #Used to draw a Horizontal line at y intecept 0
+  labs(x="Fitted Values", y="Residuals")
+```
+
+The above graph shows that the residuals are normally distributed.
+
+##### Distribution of errors fit1
+
+``` {r 4.3 Residual Plots fit1}
+
+residplot <- function(fit, nbreaks=10,modelname) {
+  z <- rstudent(fit)
+  hist(z, breaks=nbreaks, freq=FALSE,
+       xlab="Studentized Residual",
+       main=modelname)
+  rug(jitter(z), col="brown")
+  curve(dnorm(x, mean=mean(z), sd=sd(z)),
+        add=TRUE, col="blue", lwd=2)
+  lines(density(z)$x, density(z)$y,
+        col="red", lwd=2, lty=2)
+  legend("topright",
+         legend = c( "Normal Curve", "Kernel Density Curve"),
+         lty=1:2, col=c("blue","red"), cex=.7)
+}
+
+residplot(lm6,modelname="fit1")
+```
+##### Shapiro Wilk Test
+
+``` {r Shapiro Wilk Test fit1}
+shapiro.test(fit1$residuals)
+```
+
+Shapiro-Wilk normality test: Fail to reject the Null Hypothesis. The residuals do appear to be normally distributed.
+
+##### Non Constant Variance Test
+``` {r  Non Constant Variance fit1}
+ncvTest(fit1)
+```
+
+Non-constant Variance Score Test : Fail to Reject the null hypothesis. Residuals appear to  be homooscedaticity, passing the criteria barely.
+
+##### Variance Inflation
+``` {r VIF - Variance Inflation fit1}
+vif(fit1)
+```
+
+From the above graphs and their successive tests, we were determining the non-constant variance and the normality of the data. As shown by the tests, no p values were at a significant level.
+
+The above table shows the VIF values for each feature and interactions. We observed a high multicollinearity between **Age**, **OperExp:W2MiDT** and **Age:OperExp** but this is an interaction and original variable so this should be fine. Rest of the values are in range 5-10.
+
+**Resource:** https://statisticalhorizons.com/multicollinearity    
+
+``` {r anova fit1}
+anova(fit1)
+```
+The ANOVA test identifies the existence of statistically significant differences between groups. This is also seen in the R-squared value above.
+
+#### 4.2 Feature Selection using Step
+``` {r 4.2 Using "Step" operation for feature selection}
+
+fit2 = lm(RentRate~., data=data)
+summary(fit2)
+```
+
+``` {r 4.2.1 Using "Step" operation for feature selection}
+
+step(fit2, direction = "backward", trace=TRUE )
+
+```
+
+The Stepwise function suggested the formula **formula = RentRate ~ Age + OperExp + VacRate + SqFt + W2MiDT + Age:OperExp + Age:VacRate + VacRate:W2MiDT** for best R-Adjusted. Lets see if this selection features performs better than our manually selected features.
+
+``` {r 4.2.2 Using formula from step output}
+
+fit2 <-lm(formula = RentRate ~ Age + OperExp + VacRate + SqFt + W2MiDT +  Age:OperExp + Age:VacRate + VacRate:W2MiDT, data = data)
+summary(fit2)
+```
+
+As we can see, the R-Adjusted using stepwise features is different as our model (Uisng iterative process).
+
+**Analysis and Observations:**  We started with a linear regression model that included all variables except the **Taxes** variable and all interactions. We then manually generated new models by manually removing the least significant variables one at time. We removed variables based on their p-value. A small p-value, typically .05 or less, associated with a variable indicates strong evidence against the null hypothesis, which is in this case the regression coefficient is not significantly different than zero. In other words, all other variables being held constant an increase or decrease in our variable does not affect our predicted value for Y (RentalRate).
+Once our model only contained significant p-values for all included variables, we decided to stop iterating through models. (**Note: We left OperExp even though it does not have a significant p-value. We must keep this variable because it used in the significant interaction variable of Age:OperExp**).
+As we iterated though models, we paid special attention to each models’s adjusted r-square value. The adjusted r-square value is the r-square value which is the percentage of variation in rental rate that is explained by our model, adjusted for the number of predictors in out model. We mostly saw an increase in adjusted r-square from model to model. We believe the few decreases are justified in that they are very slight decreases and they removal of the variable simplies our model.
+With each model iteration, we saw increase in our F-statistic. Each model had a significant F-statistic (p-value < .01), which is evidence of in facor of the alternative hypothesis (Our model significantly predicts better than the intercept only model). With each interation, the F-statistic increases indicating a stronger likelihood our model predicts better then the intercept only model.
+
+We now have a model but we must also make sure all assumptions about multiple linear regression models are true for our model. That is our residuals are normal/have constant variance and there is no presence of multicollinearity between variables.
+
+##### Residual plot for fit2 (Model From StepWise Process)
+``` {r 4.2 Residual Plots fit2}
+
+qqPlot(fit2$residuals, pch=16)
+
+```
+
+##### Residual Plot for fit2 (Model From StepWise Process)
+``` {r 4.1 Residual Plots fit2}
+lmDo <- fortify(fit2)
+ggplot(lmDo, aes(x=.fitted, y=.resid)) +
+  geom_point(col ="red") + # this function is used to draw the scatter plot 
+  geom_hline(yintercept=0, linetype=2) + #Used to draw a Horizontal line at y intecept 0
+  labs(x="Fitted Values", y="Residuals")
+```
+
+The above graph shows that the residuals are normally distributed.
+
+##### Distribution of errors fit2
+
+``` {r 4.3 Residual Plots fit2}
+residplot(fit2,modelname="fit2")
+```
+##### Shapiro Wilk Test
+
+``` {r Shapiro Wilk Test fit2}
+shapiro.test(fit2$residuals)
+```
+Shapiro-Wilk normality test: Fail to reject the Null Hypothesis. The residuals do appear to be normally distributed.
+
+##### Non Constant Variance Test
+``` {r  Non Constant Variance fit2}
+ncvTest(fit2)
+```
+Non-constant Variance Score Test : Fail to Reject the null hypothesis. Residuals appear to  be homooscedaticity.
+
+##### Variance Inflation
+``` {r VIF - Variance Inflation fit2}
+vif(fit2)
+```
+From the above graphs and their successive tests, we were determining the non-constant variance and the normality of the data. As shown by the tests, no p values were at a significant level.
+
+As discussed in the digonastics of fit1 (The VIF values are higher for Age:OperExp and Age, because it is interaction of features we can ignore it)  
+``` {r Anova fit2}
+anova(fit2)
+```
+
+The ANOVA test identifies the existence of statistically significant differences between groups. This is also seen in the R-squared value above.
+
+#### 4.3 ALL SUBSETS REGRESSION
+
+The All Subsets Regression algorithm considers all possible models and will return the model with the highest adjusted r-squared. Once again, we have removed taxes because of its correlation with SqFt.
+
+``` {r Subset Regression}
+
+regsubsets.out <-
+  regsubsets(RentRate~Age + OperExp + VacRate + SqFt + W2MiDT + Age:OperExp + Age:VacRate + Age:SqFt + Age:W2MiDT + OperExp:VacRate + OperExp:SqFt + OperExp:W2MiDT + VacRate:SqFt + VacRate:W2MiDT,
+             data = data,
+             nbest = 1,       # 1 best model for each number of predictors
+             nvmax = NULL,    # NULL for no limit on number of variables
+             force.in = NULL, force.out = NULL,
+             method = "exhaustive")
+regsubsets.out
+
+summary.out <- summary(regsubsets.out)
+as.data.frame(summary.out$outmat)
+
+```
+
+From the resultant graph - the following variables need to be included in our data model **(variables that have black boxes at the higest Y-axis value)**: Age,OperExp,VacRate,SqFt,W2MiDT,Age:OperExp,Age:VacRate,VacRate:W2MiDT
+
+``` {r Including suggested features}
+
+fit3<- lm(RentRate~Age+OperExp+VacRate+SqFt+W2MiDT+Age:OperExp+Age:VacRate+VacRate:W2MiDT+OperExp:SqFt+Age:W2MiDT,data=data)
+summary(fit3)
+```
+
+Lets do same tests for subset model.
+
+##### Residual plot for fit3 (Model From Subset Regression Process)
+``` {r 4.2 Residual Plots fit3}
+
+qqPlot(fit3$residuals, pch=16)
+
+```
+
+##### Residual Plot for fit3 (Model From Subset Regression Process)
+``` {r 4.1 Residual Plots fit3}
+lmDo <- fortify(fit3)
+ggplot(lmDo, aes(x=.fitted, y=.resid)) +
+  geom_point(col ="red") + # this function is used to draw the scatter plot 
+  geom_hline(yintercept=0, linetype=2) + #Used to draw a Horizontal line at y intecept 0
+  labs(x="Fitted Values", y="Residuals")
+```
+
+The above graph shows that the residuals are normally distributed.
+
+##### Distribution of errors
+
+``` {r 4.3 Residual Plots fit3}
+residplot(lm9,modelname="fit3")
+```
+##### Shapiro Wilk Test
+
+``` {r Shapiro Wilk Test fit3}
+shapiro.test(fit3$residuals)
+```
+Shapiro-Wilk normality test: Fail to reject the Null Hypothesis. The residuals do not appear to be normally distributed because of low p-value of 0.03. Thus, raising question mark for the model.
+
+
+##### Non Constant Variance Test
+``` {r  Non Constant Variance fit3}
+ncvTest(fit3)
+```
+Non-constant Variance Score Test : Fail to Reject the null hypothesis. Residuals appear to  be homooscedaticity.
+
+
+##### Variance Inflation
+``` {r VIF - Variance Inflation fit3}
+vif(fit3)
+```
+
+As discussed in the digonastics of fit1 (The VIF values are higher for Age:OperExp,OperExp:SqFt and Age, because it is interaction of features we can ignore it)
+
+``` {r anova fit3}
+anova(fit3)
+```
+The ANOVA test identifies the existence of statistically significant differences between groups. This is also seen in the R-squared value above.
+P‐value for F-statistics of VacRate:W2MiDT, OperExp:SqFt and Age:W2MiDT is less than 1 which is gretaer than 0.05.
+
+
+#### 5 Review and Interpretation of VIF
+
+
+#### Evaluation of models
+
+We have evaluated 3 different models:
+
+  * fit1 (Model from Iterative process)
+  * fit2 (Model from Stepwise)
+  * fit3 (Model from Subset Regression)
+
+And we have decided that **fit1** model (Form Iterative Process) has the highest Adjusted-R score  and F-Statistics,therefore we will be using fit2 as our final model
+
+
+#### 6. Prediction
+
+We are going to use fit2 (Model from StepWise Process) which has equation as follows:
+
+``` {r Equation}
+
+as.formula(
+  paste0("y ~ ", round(coefficients(fit1)[1],2), "", 
+    paste(sprintf(" %+.2f*%s ", 
+                  coefficients(fit1)[-1],  
+                  names(coefficients(fit1)[-1])), 
+          collapse="")
+  )
+)
+
+```
+
+```  {r Predictions}
+ourData <- data.frame(Age = 9, OperExp = 13.0, VacRate = 0.00, SqFt = 40000, Taxes =0.54, W2MiDT="0")
+predict(fit1, newdata=ourData, interval="predict")
+```
+
+``` {r Further calculations}
+totalExpense <- 13000+540
+predLow <-  14.11433 * 1000
+```
+
+####Conclusion:
+
+``` {r }
+costPM<- 15.69561 - (13.000 + .540)
+costPM
+```
+
+This means that, we can rent the building at **15,695**$ with expense of **13,540**$ leaving us profit of **2,155**$ a month. So we thinks we should rent out the building moving forward.
+
+
+####Other Considerations:
+
+We think, there may be other features (not included in dataset) that might have changed the model output & model accuracy if we had those features, and we think those features are very important if we want to estimate RentRate of building. Some of the features that should have been included in the dataset are:
+
+ * Parking Space Availability
+ * Parking charges (if any)
+ * Insurance
+ * Building quality
+ * Proximity
